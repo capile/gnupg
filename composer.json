@@ -1,9 +1,9 @@
 {
-    "name": "capile/gnupg",
+    "name": "capile/pgp",
     "description": "GPG for encryption and signing",
     "type": "library",
     "license": "GPL-3.0-only",
     "require": {
-        "php": ">=7.2",
+        "php": ">=7.2"
     }
 }
