@@ -1,3 +1,5 @@
 codeception.yml
 vendor/
 composer.lock
+gpg_alias*
+tests/_output/*

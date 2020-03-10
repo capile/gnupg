@@ -21,24 +21,27 @@ class Pgp
             'personal-digest-preferences SHA512 SHA256 SHA384 SHA224',
             'cert-digest-algo SHA512',
             'personal-cipher-preferences AES256 AES192 AES CAST5',
-            'default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB BZIP2 ZIP Uncompressed',
+            'default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 ZLIB ZIP Uncompressed',
             'no-comments',
             'expert',
             'no-auto-check-trustdb',
             'no-sig-cache',
+            'pinentry-mode loopback',
         ],
         $defaultCreate=[
             'type' => 'RSA',
         ],
-        $sanitizeInput=true;
+        $sanitizeInput=true,
+        $logDir;
 
     protected 
         $home,
         $encryptKeys=[],
         $decryptKeys=[],
         $signKeys=[],
-        $error;
-    protected static $passwords=[];
+        $error,
+        $errorMessage;
+    protected static $passphrase=[];
     public $destroyHome;
 
     public function __construct($gpghome=null)
@@ -102,6 +105,11 @@ class Pgp
             }
             $s .= $n.': '.$v."\n";
         }
+
+        if(!strpos($s, 'Passphrase')) {
+            // enabled for tests only
+            $s .= "%no-protection\n%transient-key\n";
+        }
         $s .= '%commit';
 
         $pwd = getcwd();
@@ -126,10 +134,6 @@ class Pgp
 
     public function import($keydata)
     {
-        static $map = [
-            'Total number processed'=>'imported',
-        ];
-
         if(static::$sanitizeInput) {
             $keydata = preg_replace('#[^a-z0-9=/\+\n\- ]+#i', '', $keydata);
         }
@@ -160,10 +164,6 @@ class Pgp
                         $ids[] = substr($m[1], 4);
                     } else if(isset($r[$m[1]]) && is_numeric($m[2])) {
                         $r[$m[1]] += (int) $m[2];
-                    } else if(isset($map[$m[1]]) && is_numeric($m[2])) {
-                        $r[$map[$m[1]]] += (int) $m[2];
-                    } else {
-                        \tdz::log(__METHOD__.': what is '.$m[1].': '.$m[2].' ????');
                     }
                 }
                 unset($res[$i], $i, $ln, $m);
@@ -172,15 +172,9 @@ class Pgp
             // expand ids to fingerprint, get only the first one
             if($ids) {
                 $r['ids'] = $ids;
-                array_unshift($ids, '--list-keys');
-                $res = $this->run($ids);
-                unset($ids);
-                foreach($res as $i=>$ln) {
-                    if(strpos($ln, $r['ids'][0])) {
-                        $r['fingerprint'] = trim($ln);
-                        break;
-                    }
-                    unset($res[$i], $i, $o);
+                $res = $this->keyinfo($ids[0], 'fingerprint');
+                if($res && isset($res[0])) {
+                    $r['fingerprint'] = $res[0];
                 }
                 unset($res);
             }
@@ -224,6 +218,7 @@ class Pgp
                 'email' => null,
                 'uid' => null,
                 'revoked' => null,
+                'expired' => null,
                 'invalid' => null,
             ],
 
@@ -286,6 +281,14 @@ class Pgp
                 $expired = null;
                 $invalid = null;
 
+                if($c[1]==='r') {
+                    $revoked = true;
+                    $r[$keyid]['subkeys'][$subid]['revoked'] = true;
+                } else if($c[1]==='e') {
+                    $revoked = true;
+                    $r[$keyid]['subkeys'][$subid]['expired'] = true;
+                }
+
                 if(is_numeric($c[6])) {
                     $r[$keyid]['subkeys'][$subid]['expires'] = (int) $c[6];
                     if($r[$keyid]['subkeys'][$subid]['expires'] < time()) {
@@ -328,6 +331,15 @@ class Pgp
 
                 // check revoked
                 // check invalid
+                if($c[1]==='r') {
+                    $revoked = true;
+                    $r[$keyid]['uids'][$uid]['revoked'] = true;
+                    $r[$keyid]['uids'][$uid]['invalid'] = true;
+                } else if($c[1]==='e') {
+                    $revoked = true;
+                    $r[$keyid]['uids'][$uid]['expired'] = true;
+                    $r[$keyid]['uids'][$uid]['invalid'] = true;
+                }
 
             }
         }
@@ -419,15 +431,15 @@ class Pgp
     {
         $this->signKeys[] = $key;
         if(!is_null($pass)) {
-            self::$passwords['sign-'.$key] = $pass;
+            self::$passphrase['sign-'.$key] = $pass;
         }
     }
 
     public function clearsignkeys()
     {
         foreach($this->decryptKeys as $i=>$k) {
-            if(isset(self::$passwords['sign-'.$key])) {
-                unset(self::$passwords['sign-'.$key]);
+            if(isset(self::$passphrase['sign-'.$key])) {
+                unset(self::$passphrase['sign-'.$key]);
             }
             unset($this->decryptKeys[$i], $i, $k);
         }
@@ -437,15 +449,15 @@ class Pgp
     {
         $this->decryptKeys[] = $key;
         if(!is_null($pass)) {
-            self::$passwords['decrypt-'.$key] = $pass;
+            self::$passphrase['decrypt-'.$key] = $pass;
         }
     }
 
     public function cleardecryptkeys()
     {
         foreach($this->decryptKeys as $i=>$k) {
-            if(isset(self::$passwords['decrypt-'.$k])) {
-                unset(self::$passwords['decrypt-'.$k]);
+            if(isset(self::$passphrase['decrypt-'.$k])) {
+                unset(self::$passphrase['decrypt-'.$k]);
             }
             unset($this->decryptKeys[$i], $i, $k);
         }
@@ -485,14 +497,14 @@ class Pgp
         $f = tempnam($this->home, '.dec');
         file_put_contents($f, $msg);
 
-        $cmd = ['-d'];
+        $cmd = ['-d', '--batch'];
         // only the first decryption key will be used
         foreach($this->decryptKeys as $k) {
             $secret = $this->keyinfo($k, 'is_secret');
-            print_r([$k, $secret, self::$passwords['decrypt-'.$k]]);
-            if($secret && isset(self::$passwords['decrypt-'.$k])) {
+            print_r([$k, $secret, self::$passphrase['decrypt-'.$k]]);
+            if($secret && isset(self::$passphrase['decrypt-'.$k])) {
                 $pf = tempnam($this->home, '.sec');
-                file_put_contents($pf, self::$passwords['decrypt-'.$k]);
+                file_put_contents($pf, self::$passphrase['decrypt-'.$k]);
                 $cmd[] = '--passphrase-file';
                 $cmd[] = $pf;
                 break;
@@ -524,12 +536,20 @@ class Pgp
 
     public function sign()
     {
-        \tdz::debug(__METHOD__);
+        // not implemented yet
     }
 
-    public function geterror()
+    public function geterror($number=null)
     {
-        \tdz::debug(__METHOD__);
+        return ($number) ?$this->error :$this->errorMessage;
+    }
+
+    public function clearerror()
+    {
+        if($this->error) {
+            $this->error = null;
+            $this->errorMessage = null;
+        }
     }
 
     public function version()
@@ -542,6 +562,8 @@ class Pgp
         if($this->home && getenv('GNUPGHOME')!=$this->home) {
             putenv('GNUPGHOME='.strtr(preg_replace('#[^a-z0-9 /_\-]+#i', '', $this->home), [' '=>'\\ ']));
         }
+
+        $this->clearerror();
 
         $cmd = static::$gpgCli.' '.static::$defaultOptions;
         if(is_array($options)) {
@@ -556,9 +578,84 @@ class Pgp
         @exec($cmd, $output, $result);
         if($result==0) return $output;
 
-        $this->error = $output;
+        $this->error = $result;
 
-        print_r([__METHOD__, $this->home, getenv('GNUPGHOME'), $cmd, $result, $output]);
-        exit();
+        if($output) {
+            $e = false;
+            foreach($output as $ln) {
+                if($e && substr($ln, 0, 4)==='tru:') {
+                    break;
+                } else if($e || preg_match('/^gpg: error /', $ln)) {
+                    $e = true;
+                    $this->errorMessage .= $ln."\n";
+                }
+            }
+        }
+
+        $this->log('[ERROR] PGP Error: '.$this->error, $cmd, implode("\n", $output));
+
+        return;
     }
+
+    /**
+     * Error messages logger
+     *
+     * Pretty print the objects to the PHP's error_log
+     *
+     * @param   mixed  $var  value to be displayed
+     *
+     * @return  void
+     */
+    public function log()
+    {
+        static $trace;
+        $logs = array();
+        $d = (!is_array(self::$logDir))?(array(self::$logDir)):(self::$logDir);
+        foreach($d as $l) {
+            if($l=='syslog' && openlog('capile-pgp', LOG_PID|LOG_NDELAY, LOG_LOCAL5)) {
+                $logs['syslog'] = true;
+            } else if($l=='error_log') {
+                $logs[0] = true;
+            } else if($l=='cli') {
+                $logs[2] = true;
+            } else {
+                if(!$l) {
+                    $l = $this->gpgHome;
+                }
+                $logs[3] = $l . '/gpgerror.log';
+            }
+            unset($l);
+        }
+        unset($d);
+
+        foreach (func_get_args() as $k => $v) {
+            if(!is_string($v)) {
+                $v = (function_exists('json_encode')) ?json_encode($v,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) :serialize($v);
+            }
+            $v .= "\n";
+            if(isset($logs['syslog'])) {
+                $l = LOG_INFO;
+                if(substr($v, 0, 4)=='[ERR') $l = LOG_ERR;
+                else if(substr($v, 0, 5)=='[WARN') $l = LOG_WARNING;
+                else $l = LOG_INFO;
+                syslog($l, $v);
+            }
+            if(isset($logs[3])) {
+                error_log($v, 3, $logs[3]);
+            }
+            if(isset($logs[0])) {
+                error_log($v, 0);
+            }
+            if(isset($logs[2])) {
+                echo $v;
+            }
+            unset($v, $k);
+        }
+
+        if(isset($logs['syslog'])) {
+            closelog();
+        }
+        unset($logs);
+    }
+
 }
