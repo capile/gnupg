@@ -162,15 +162,11 @@ class GpgTest extends \Codeception\Test\Unit
     }
 
     // this should be the ast one to clean up test dirs
-    protected function testCleanup()
+    public function testCleanup()
     {
         if(self::$Gpg) {
             self::$Gpg->destroyHome = true;
             self::$Gpg = null;
-            if(self::$Gpg->geterror() && file_exists(Pgp::$gpgHome.'/gpgerror.log')) {
-                echo file_get_contents(Pgp::$gpgHome.'/gpgerror.log');
-                exit();
-            }
             $this->assertEquals(false, file_exists(Pgp::$gpgHome));
         }
     }
