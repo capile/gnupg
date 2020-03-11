@@ -32,7 +32,7 @@ class Pgp
             'type' => 'RSA',
         ],
         $sanitizeInput=true,
-        $logDir;
+        $logDir='error_log';
 
     protected 
         $home,
@@ -620,7 +620,7 @@ class Pgp
                 $logs[2] = true;
             } else {
                 if(!$l) {
-                    $l = $this->gpgHome;
+                    $l = $this->home;
                 }
                 $logs[3] = $l . '/gpgerror.log';
             }
