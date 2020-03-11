@@ -8,6 +8,7 @@ class Pgp
         $gpgHome,
         $gpgCli='gpg',
         $gpgAgent='gpg-agent',
+        $startAgent,
         $defaultOptions='--batch',
         $defaultConfig=[
             'with-fingerprint',
@@ -63,15 +64,44 @@ class Pgp
         if(!file_exists($this->home.'/gpg.conf')) {
             file_put_contents($this->home.'/gpg.conf', implode("\n", static::$defaultConfig));
         }
+
+        if(static::$startAgent) {
+            @exec('pgrep -fa gpg-agent', $output, $result);
+            if($result==1 && !$output) {
+                $cmd = static::$gpgAgent.' --daemon';
+                if(strpos($cmd, 'GNUPGHOME=')===false) {
+                    $cmd = 'GNUPGHOME='.$this->home.' '.$cmd;
+                }
+                @exec($cmd, $output, $result);
+            }
+        }
     }
 
     public function __destruct()
     {
         if($this->home && $this->destroyHome) {
             if($g=glob($this->home.'/*')) {
+                $d = [];
                 while($g) {
                     $f = array_shift($g);
-                    if(is_file($f)) unlink($f);
+                    $b = basename($f);
+                    if($b==='.' || $b==='..') {
+                        continue;
+                    } else if(is_dir($f)) {
+                        $n = glob($f.'/*');
+                        if($n) {
+                            $n[] = $f;
+                            $g = array_merge($n, $g);
+                            if(in_array($f, $d)) {
+                                continue;
+                            }
+                            $d[] = $f;
+                        } else {
+                            rmdir($f);
+                        }
+                    } else {
+                        unlink($f);
+                    }
                 }
             }
             rmdir($this->home);

@@ -20,7 +20,14 @@ class GpgTest extends \Codeception\Test\Unit
     {
         if(!self::$Gpg) {
             $root = dirname(dirname(dirname(__FILE__)));
-            if(file_exists($root.'/gpg_alias')) Pgp::$gpgCli=file_get_contents($root.'/gpg_alias');
+            if(file_exists($root.'/test-configuration-pgp.json')) {
+                $cfg = json_decode(file_get_contents($root.'/test-configuration-pgp.json'), false);
+                if($cfg) {
+                    foreach($cfg as $n=>$v) {
+                        Pgp::$$n = $v;
+                    }
+                }
+            }
 
             Pgp::$gpgHome = tempnam($root.'/tests/_output', 'unit-test');
             Pgp::$logDir = [ Pgp::$gpgHome, 'cli' ];
@@ -75,13 +82,14 @@ class GpgTest extends \Codeception\Test\Unit
             [
                 'email'=>'1',
                 'expires'=>date('Ymd\THis', time()+1),
-                'password'=>'1',
+                'password'=>base64_encode(random_bytes(30)),
             ],
             [
                 'name'=>' Test UTF8 😍',
                 'email'=>'😍@example.com',
                 'password'=>base64_encode(random_bytes(30)).'😍',
             ],
+            /*
             [
                 'Key-Type' => 'DSA',
                 'Key-Length' => 1024,
@@ -93,15 +101,17 @@ class GpgTest extends \Codeception\Test\Unit
                 'Expire-Date'=>0,
                 'Passphrase'=>base64_encode(random_bytes(30)),
             ],
+            */
         ];
 
         foreach(self::$create as $i=>$k) {
             if(!(self::$keys[$i] = self::$Gpg->create($k))) {
                 /*
-                if(file_exists(Pgp::$gpgHome.'/gpgerror.log')) {
+                if(self::$Gpg->error() && file_exists(Pgp::$gpgHome.'/gpgerror.log')) {
                     echo file_get_contents(Pgp::$gpgHome.'/gpgerror.log'), "\n";
                     exit();
-                }*/
+                }
+                */
             }
             $this->assertEquals(strlen(self::$keys[$i]), 40);
         }
@@ -134,10 +144,12 @@ class GpgTest extends \Codeception\Test\Unit
         self::$Gpg->clearencryptkeys();
 
         if(!static::$secretMessage) {
+            /*
             if(self::$Gpg->geterror() && file_exists(Pgp::$gpgHome.'/gpgerror.log')) {
                 echo file_get_contents(Pgp::$gpgHome.'/gpgerror.log'), "\n";
                 exit();
             }
+            */
         }
 
         $this->assertEquals(substr(static::$secretMessage, 0, 27), '-----BEGIN PGP MESSAGE-----');
@@ -152,11 +164,12 @@ class GpgTest extends \Codeception\Test\Unit
         self::$Gpg->cleardecryptkeys();
 
         if(!$msg) {
-            exit(self::$Gpg->geterror());
+            /*
             if(self::$Gpg->geterror() && file_exists(Pgp::$gpgHome.'/gpgerror.log')) {
                 echo file_get_contents(Pgp::$gpgHome.'/gpgerror.log'), "\n";
                 exit();
             }
+            */
         }
         $this->assertEquals(self::$message, $msg);
     }

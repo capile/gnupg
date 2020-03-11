@@ -1,0 +1,5 @@
+{
+    "gpgCli": "LD_LIBRARY_PATH=/opt/gnupg/lib /opt/gnupg/bin/gpg",
+    "gpgAgent": "LD_LIBRARY_PATH=/opt/gnupg/lib /opt/gnupg/bin/gpg-agent",
+    "startAgent": true
+}
