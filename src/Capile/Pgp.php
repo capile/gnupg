@@ -33,7 +33,8 @@ class Pgp
             'type' => 'RSA',
         ],
         $sanitizeInput=true,
-        $logDir='error_log';
+        $logDir='error_log',
+        $acceptedErrorCodes=[2];
 
     protected 
         $home,
@@ -606,7 +607,7 @@ class Pgp
         $cmd .= ' 2>&1';
 
         @exec($cmd, $output, $result);
-        if($result==0) return $output;
+        if($result==0 || in_array($result, static::$acceptedErrorCodes)) return $output;
 
         $this->error = $result;
 
@@ -652,7 +653,8 @@ class Pgp
                 if(!$l) {
                     $l = $this->home;
                 }
-                $logs[3] = $l . '/gpgerror.log';
+                if(is_dir($l)) $l .= '/gpgerror.log';
+                $logs[3] = $l;
             }
             unset($l);
         }
