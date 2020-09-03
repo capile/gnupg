@@ -279,14 +279,23 @@ class Pgp
         $uid = -1;
         $r = [];
         $txt = implode("\n", $res);
+        //$rvk = [];
 
         while($res) {
             $ln = array_shift($res);
             if(!$ln || !($c=explode(':', $ln)) || $c[0]==='tru') continue;
 
             if($c[0]==='pub' || $c[0]==='sub') {
-                $nxt = explode(':', array_shift($res));
-                $fpr = $nxt[9];
+
+                while($nxt = explode(':', array_shift($res))) {
+                    if($nxt[0]==='fpr') {
+                        $fpr = $nxt[9];
+                        break;
+                    //} else if($nxt[0]==='rvk') {
+                    //    $rvk[] = $nxt[9];
+                    }
+                    $nxt = null;
+                }
 
                 if($c[0]==='pub') {
                     $keyid++;
