@@ -166,9 +166,15 @@ class Pgp
     public function import($keydata)
     {
         if(static::$sanitizeInput) {
-            $keydata = preg_replace('#[^a-z0-9=/\+\n\- ]+#i', '', $keydata);
-        }
+            $keydata = preg_replace('#[^a-z0-9=\:/\+\n\- ]+#i', '', trim($keydata));
 
+            if($p=strpos($keydata, "\n\n")) {
+                $h = '-----BEGIN PGP PUBLIC KEY BLOCK-----';
+                if(substr($keydata, 0, strlen($h))===$h) {
+                    $keydata = $h.substr($keydata, $p);
+                }
+            }
+        }
         $f = tempnam($this->home, 'key');
         file_put_contents($f, $keydata);
         $res = $this->run(['--import', $f]);
