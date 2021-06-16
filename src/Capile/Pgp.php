@@ -245,6 +245,7 @@ class Pgp
                 'is_secret' => null,
                 'can_sign' => null,
                 'can_encrypt' => null,
+                'can_certify' => null,
                 'size' => null,
                 'uids' => [],
                 'subkeys' => [],
@@ -264,10 +265,11 @@ class Pgp
                 'keyid' => null,
                 'timestamp' => null,
                 'expires' => null,
-                'is_secret' => null,
                 'invalid' => null,
-                'can_encrypt' => null,
+                'is_secret' => null,
                 'can_sign' => null,
+                'can_encrypt' => null,
+                'can_certify' => null,
                 'disabled' => null,
                 'expired' => null,
                 'revoked' => null,
@@ -276,6 +278,7 @@ class Pgp
 
         $cmd = ($prop && $prop!='sigs') ?'--list-sigs' :'--list-keys';
 
+        // full details of the field listings: http://www.mit.edu/afs.new/sipb/user/kolya/gpg/gnupg-1.2.1/doc/DETAILS
         $res = $this->run([$cmd, '--with-colons', $search]);
 
         if(!$res) return;
@@ -333,6 +336,9 @@ class Pgp
                 } else if($c[1]==='e') {
                     $revoked = true;
                     $r[$keyid]['subkeys'][$subid]['expired'] = true;
+                } else if($c[1]==='u') {
+                    $r[$keyid]['is_secret'] = true;
+                    $r[$keyid]['subkeys'][$subid]['is_secret'] = true;
                 }
 
                 if(is_numeric($c[6])) {
@@ -352,7 +358,7 @@ class Pgp
                     $r[$keyid]['subkeys'][$subid]['can_encrypt'] = true;
                 }
                 if(strpos($c[11], 'a')!==false) {
-                    $r[$keyid]['subkeys'][$subid]['is_secret'] = true;
+                    $r[$keyid]['subkeys'][$subid]['can_certify'] = true;
                 }
             } else if($c[0]==='sig') {
             } else if($c[0]==='uid') {
@@ -398,33 +404,51 @@ class Pgp
                 $revoked = null;
                 $expired = null;
                 $invalid = null;
-                $is_secret  = null;
                 $can_sign = null;
                 $can_encrypt = null;
+                $can_certify = null;
+                $not = [];
                 if($o['subkeys']) {
                     foreach ($o['subkeys'] as $keyid => $k) {
                         if($k['disabled']) {
                             $disabled = true;
-                        } else if($disabled) {
-                            $disabled = null;
+                        } else {
+                            if($disabled) {
+                                $disabled = null;
+                            }
+                            if(!isset($not['disabled'])) {
+                                $not['disabled'] = true;
+                            }
                         }
                         if($k['revoked']) {
                             $revoked = true;
-                        } else if($revoked) {
-                            $revoked = null;
+                        } else {
+                            if($revoked) {
+                                $revoked = null;
+                            }
+                            if(!isset($not['revoked'])) {
+                                $not['revoked'] = true;
+                            }
                         }
                         if($k['expired']) {
                             $expired = true;
-                        } else if($expired) {
-                            $expired = null;
+                        } else {
+                            if($expired) {
+                                $expired = null;
+                            }
+                            if(!isset($not['expired'])) {
+                                $not['expired'] = true;
+                            }
                         }
                         if($k['invalid']) {
                             $invalid = true;
-                        } else if($invalid) {
-                            $invalid = null;
-                        }
-                        if($k['is_secret']) {
-                            $is_secret = true;
+                        } else {
+                            if($invalid) {
+                                $invalid = null;
+                            }
+                            if(!isset($not['invalid'])) {
+                                $not['invalid'] = true;
+                            }
                         }
                         if(is_null($disabled) && is_null($revoked) && is_null($expired) && is_null($invalid)) {
                             if($k['can_sign']) {
@@ -433,17 +457,20 @@ class Pgp
                             if($k['can_encrypt']) {
                                 $can_encrypt = true;
                             }
+                            if($k['can_certify']) {
+                                $can_certify = true;
+                            }
                         }
                         unset($keyid, $k);
                     }
                 }
-                $r[$i]['disabled'] = $disabled;
-                $r[$i]['revoked']  = $revoked;
-                $r[$i]['expired']  = $expired;
-                $r[$i]['invalid']  = $invalid;
-                $r[$i]['is_secret'] = $is_secret;
+                $r[$i]['disabled'] = ($disabled && !isset($not['disabled'])) ?$disabled :null;
+                $r[$i]['revoked']  = ($revoked && !isset($not['revoked'])) ?$revoked :null;
+                $r[$i]['expired']  = ($expired && !isset($not['expired'])) ?$expired :null;
+                $r[$i]['invalid']  = ($invalid && !isset($not['invalid'])) ?$invalid :null;
                 $r[$i]['can_sign'] = $can_sign;
                 $r[$i]['can_encrypt'] = $can_encrypt;
+                $r[$i]['can_certify'] = $can_certify;
 
                 if($prop) {
                     if(isset($r[$i][$prop])) {
